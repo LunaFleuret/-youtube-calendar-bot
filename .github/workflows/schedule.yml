@@ -1,0 +1,36 @@
+# この自動化処理の名前
+name: Check YouTube Schedule
+
+# これを動かす「きっかけ」の設定
+on:
+  schedule:
+    # 1時間に1回（毎時15分頃）に実行するというスケジュール設定
+    - cron: '15 * * * *'
+  # 手動でも実行できるようにする設定
+  workflow_dispatch:
+
+# 実行する「作業（ジョブ）」の内容
+jobs:
+  build:
+    # GitHubが用意してくれるLinuxサーバー（Ubuntu）上で実行します
+    runs-on: ubuntu-latest
+
+    # 作業のステップ
+    steps:
+      # 1. プログラムのコードをサーバーにコピーする
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Python環境を準備する
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11' # Pythonのバージョン指定
+
+      # 3. 必要なライブラリをインストールする
+      - name: Install dependencies
+        run: pip install pytz
+
+      # 4. main.py を実行する
+      - name: Run script
+        run: python main.py
