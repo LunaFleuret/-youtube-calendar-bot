@@ -49,20 +49,19 @@ def main():
         print('--- 1. YouTubeの配信予定を取得しています... ---')
         youtube_events = {}
         request = youtube.search().list(
-            part='snippet', channelId=YOUTUBE_CHANNEL_ID, eventType='upcoming',
-            type='video', maxResults=50 # 取得件数を少し増やす
+            part='id,snippet', channelId=YOUTUBE_CHANNEL_ID, eventType='upcoming',
+            type='video', maxResults=50
         )
         response = request.execute()
         
         video_ids_to_fetch = [item['id']['videoId'] for item in response.get('items', [])]
         if video_ids_to_fetch:
-            video_details_request = youtube.videos().list(part="liveStreamingDetails", id=",".join(video_ids_to_fetch))
+            video_details_request = youtube.videos().list(part="liveStreamingDetails,snippet", id=",".join(video_ids_to_fetch))
             video_details_response = video_details_request.execute()
             for item in video_details_response.get('items', []):
                 video_id = item['id']
                 start_time_str = item.get('liveStreamingDetails', {}).get('scheduledStartTime')
-                # snippetからtitleを取得するために元のresponseを参照
-                title = next((i['snippet']['title'] for i in response['items'] if i['id']['videoId'] == video_id), "No Title")
+                title = item.get('snippet', {}).get('title', '（タイトル不明）')
                 if start_time_str:
                     youtube_events[video_id] = {'title': title, 'start_time': start_time_str}
         
@@ -80,7 +79,11 @@ def main():
         for event in events_result.get('items', []):
             video_id = get_video_id_from_description(event.get('description'))
             if video_id:
-                calendar_events[video_id] = {'event_id': event['id'], 'start_time': event['start'].get('dateTime')}
+                calendar_events[video_id] = {
+                    'event_id': event['id'], 
+                    'start_time': event['start'].get('dateTime'),
+                    'title': event.get('summary')
+                }
 
         print(f"カレンダー上で {len(calendar_events)} 件の配信予定を見つけました。")
 
@@ -105,16 +108,18 @@ def main():
             calendar.events().insert(calendarId=CALENDAR_ID, body=event_body).execute()
             time.sleep(1)
 
-        # パターン②：更新 (両方にあるが、時間が違う)
+        # パターン②：更新 (両方にあるが、時間またはタイトルが違う)
         for video_id in youtube_video_ids.intersection(calendar_video_ids):
-            youtube_start_time = youtube_events[video_id]['start_time']
-            calendar_start_time = calendar_events[video_id]['start_time']
+            youtube_event = youtube_events[video_id]
+            calendar_event = calendar_events[video_id]
             
-            # Googleカレンダーの時刻形式に合わせて比較
-            if youtube_start_time != calendar_start_time.replace('+00:00', 'Z'):
-                event_data = youtube_events[video_id]
-                title = event_data['title']
-                start_time_dt = datetime.datetime.fromisoformat(event_data['start_time'].replace('Z', '+00:00'))
+            youtube_start_time_utc = youtube_event['start_time']
+            calendar_start_time_utc = calendar_event['start_time'].replace('+00:00', 'Z')
+            
+            # 時間またはタイトルが変更されているかチェック
+            if youtube_start_time_utc != calendar_start_time_utc or youtube_event['title'] != calendar_event['title']:
+                title = youtube_event['title']
+                start_time_dt = datetime.datetime.fromisoformat(youtube_start_time_utc.replace('Z', '+00:00'))
                 end_time_dt = start_time_dt + datetime.timedelta(hours=2)
                 
                 event_body = {
@@ -122,26 +127,18 @@ def main():
                     'start': {'dateTime': start_time_dt.isoformat(), 'timeZone': 'UTC'},
                     'end': {'dateTime': end_time_dt.isoformat(), 'timeZone': 'UTC'},
                 }
-                event_id_to_update = calendar_events[video_id]['event_id']
-                print(f"【更新】: 「{title}」の時間を更新します。")
+                event_id_to_update = calendar_event['event_id']
+                print(f"【更新】: 「{title}」の情報を更新します。")
                 calendar.events().update(calendarId=CALENDAR_ID, eventId=event_id_to_update, body=event_body).execute()
                 time.sleep(1)
 
         # パターン③：削除 (カレンダーにはあるが、YouTubeにはない)
         for video_id in calendar_video_ids - youtube_video_ids:
             event_id_to_delete = calendar_events[video_id]['event_id']
-            # イベントの詳細を取得してタイトルを表示
-            try:
-                event_to_delete = calendar.events().get(calendarId=CALENDAR_ID, eventId=event_id_to_delete).execute()
-                title = event_to_delete.get('summary', '（タイトル不明）')
-                print(f"【削除】: 「{title}」は中止されたため、削除します。")
-                calendar.events().delete(calendarId=CALENDAR_ID, eventId=event_id_to_delete).execute()
-                time.sleep(1)
-            except HttpError as e:
-                if e.resp.status == 404:
-                    print(f"削除しようとしたイベントが見つかりませんでした（ID: {event_id_to_delete}）。")
-                else:
-                    raise
+            title = calendar_events[video_id].get('title', '（タイトル不明）')
+            print(f"【削除】: 「{title}」は中止されたため、削除します。")
+            calendar.events().delete(calendarId=CALENDAR_ID, eventId=event_id_to_delete).execute()
+            time.sleep(1)
 
         print('--- 4. 同期処理が完了しました ---')
 
