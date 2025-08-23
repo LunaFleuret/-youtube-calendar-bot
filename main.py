@@ -70,9 +70,11 @@ def main():
         # --- 2. Googleカレンダーから未来の予定を取得 ---
         print('--- 2. Googleカレンダーの既存予定を取得しています... ---')
         calendar_events = {}
-        now = datetime.datetime.utcnow().isoformat() + 'Z'
+        now_utc_dt = datetime.datetime.now(datetime.timezone.utc)
+        now_utc_iso = now_utc_dt.isoformat()
+        
         events_result = calendar.events().list(
-            calendarId=CALENDAR_ID, timeMin=now, maxResults=250, singleEvents=True,
+            calendarId=CALENDAR_ID, timeMin=now_utc_iso, maxResults=250, singleEvents=True,
             orderBy='startTime'
         ).execute()
         
@@ -97,6 +99,12 @@ def main():
             event_data = youtube_events[video_id]
             title = event_data['title']
             start_time_dt = datetime.datetime.fromisoformat(event_data['start_time'].replace('Z', '+00:00'))
+            
+            # 【安全装置】配信開始時刻が、現在時刻より未来の場合のみ追加する
+            if start_time_dt < now_utc_dt:
+                print(f"【スキップ】: 「{title}」は既に開始または終了しているため、追加しません。")
+                continue
+
             end_time_dt = start_time_dt + datetime.timedelta(hours=2)
 
             event_body = {
@@ -108,7 +116,7 @@ def main():
             calendar.events().insert(calendarId=CALENDAR_ID, body=event_body).execute()
             time.sleep(1)
 
-        # パターン②：更新 (両方にあるが、時間またはタイトルが違う)
+        # パターン②：更新 (両方にあるが、時間が違う場合のみ)
         for video_id in youtube_video_ids.intersection(calendar_video_ids):
             youtube_event = youtube_events[video_id]
             calendar_event = calendar_events[video_id]
@@ -116,34 +124,4 @@ def main():
             youtube_start_time_utc = youtube_event['start_time']
             calendar_start_time_utc = calendar_event['start_time'].replace('+00:00', 'Z')
             
-            # 時間またはタイトルが変更されているかチェック
-            if youtube_start_time_utc != calendar_start_time_utc or youtube_event['title'] != calendar_event['title']:
-                title = youtube_event['title']
-                start_time_dt = datetime.datetime.fromisoformat(youtube_start_time_utc.replace('Z', '+00:00'))
-                end_time_dt = start_time_dt + datetime.timedelta(hours=2)
-                
-                event_body = {
-                    'summary': title, 'description': f'https://www.youtube.com/watch?v={video_id}',
-                    'start': {'dateTime': start_time_dt.isoformat(), 'timeZone': 'UTC'},
-                    'end': {'dateTime': end_time_dt.isoformat(), 'timeZone': 'UTC'},
-                }
-                event_id_to_update = calendar_event['event_id']
-                print(f"【更新】: 「{title}」の情報を更新します。")
-                calendar.events().update(calendarId=CALENDAR_ID, eventId=event_id_to_update, body=event_body).execute()
-                time.sleep(1)
-
-        # パターン③：削除 (カレンダーにはあるが、YouTubeにはない)
-        for video_id in calendar_video_ids - youtube_video_ids:
-            event_id_to_delete = calendar_events[video_id]['event_id']
-            title = calendar_events[video_id].get('title', '（タイトル不明）')
-            print(f"【削除】: 「{title}」は中止されたため、削除します。")
-            calendar.events().delete(calendarId=CALENDAR_ID, eventId=event_id_to_delete).execute()
-            time.sleep(1)
-
-        print('--- 4. 同期処理が完了しました ---')
-
-    except HttpError as error:
-        print(f'An error occurred: {error}')
-
-if __name__ == '__main__':
-    main()
+            # 時間が変更されているかだけをチェック
