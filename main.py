@@ -70,7 +70,7 @@ def main():
             try:
                 events_result = calendar.events().list(
                     calendarId=CALENDAR_ID,
-                    privateExtendedProperty=f"youtubeVideoId={video_id}",
+                    privateExtendedProperty=f"youtubeVideoId='{video_id}'",
                     maxResults=1
                 ).execute()
                 if events_result.get('items'):
