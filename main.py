@@ -90,11 +90,19 @@ for event in existing_events:
             start_time_dt = datetime.datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
             end_time_dt = start_time_dt + datetime.timedelta(hours=2)
 
-            event_body = {
-                'summary': title, 'description': f'https://www.youtube.com/watch?v={video_id}',
-                'start': {'dateTime': start_time_dt.isoformat(), 'timeZone': 'UTC'},
-                'end': {'dateTime': end_time_dt.isoformat(), 'timeZone': 'UTC'},
-            }
+            # main.py の97行目あたり
+　　　event_body = {
+    'summary': title,
+    'description': f'https://www.youtube.com/watch?v={video_id}',
+    'start': {'dateTime': start_time_dt.isoformat(), 'timeZone': 'UTC'},
+    'end': {'dateTime': end_time_dt.isoformat(), 'timeZone': 'UTC'},
+    # 拡張プロパティにYouTubeのVideo IDを保存します
+    'extendedProperties': {
+        'private': {
+            'youtubeVideoId': video_id
+        }
+    }
+}
             
             print(f"新規登録: 「{title}」をカレンダーに追加します...")
             calendar.events().insert(calendarId=CALENDAR_ID, body=event_body).execute()
