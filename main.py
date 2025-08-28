@@ -63,21 +63,29 @@ def main():
             video_id = item['id']['videoId']
             title = item['snippet']['title']
             
-            # === ステップ2: イベント検索 ===
-            # video_id を使って、カレンダーに既に同じ予定が存在しないか検索します。
-            # privateExtendedProperty を使うことで、特定のカスタムデータを持つイベントだけを絞り込めます。
-            existing_event = None
+            # === ステップ2: イベント検索（新しい方法） ===
+            # timeMinを使って未来のイベントを取得し、手動でIDを照合します。
+            now = datetime.datetime.utcnow().isoformat() + 'Z'
             try:
                 events_result = calendar.events().list(
                     calendarId=CALENDAR_ID,
-                    privateExtendedProperty=f"youtubeVideoId='{video_id}'",
-                    maxResults=1
+                    timeMin=now,
+                    maxResults=50, # 今後の予定を50件まで取得
+                    singleEvents=True,
+                    orderBy='startTime'
                 ).execute()
-                if events_result.get('items'):
-                    existing_event = events_result.get('items')[0]
+                calendar_events = events_result.get('items', [])
             except HttpError as e:
-                print(f"エラー: カレンダーの検索中にエラーが発生しました - {e}")
-                continue # エラーが発生した場合は、このビデオの処理をスキップします
+                print(f"エラー: カレンダーイベントの取得中にエラーが発生しました - {e}")
+                continue
+
+            existing_event = None
+            for event in calendar_events:
+                # イベントの拡張プロパティに保存されたYouTubeのビデオIDを確認します
+                private_props = event.get('extendedProperties', {}).get('private', {})
+                if private_props.get('youtubeVideoId') == video_id:
+                    existing_event = event
+                    break # 一致するイベントが見つかったのでループを抜けます
 
             # 後続のステップで、この existing_event を使って更新または新規追加の判断を行います。
 
