@@ -62,12 +62,13 @@ def main():
         ).execute()
         existing_events = events_result.get('items', [])
         
-        registered_video_ids = set()
-        for event in existing_events:
-            description = event.get('description', '')
-            if 'youtube.com/watch?v=' in description:
-                video_id = description.split('v=')[-1]
-                registered_video_ids.add(video_id)
+ 
+registered_video_ids = set()
+for event in existing_events:
+    # イベントの拡張プロパティからYouTubeのVideo IDを取得します
+    properties = event.get('extendedProperties', {}).get('private', {})
+    if 'youtubeVideoId' in properties:
+        registered_video_ids.add(properties['youtubeVideoId'])
         
         print(f'カレンダーには現在 {len(registered_video_ids)} 件の将来の配信予定が登録されています。')
 
