@@ -63,14 +63,18 @@ def main():
             video_id = item['id']['videoId']
             title = item['snippet']['title']
             
-            # === ステップ2: イベント検索（新しい方法） ===
-            # timeMinを使って未来のイベントを取得し、手動でIDを照合します。
-            now = datetime.datetime.utcnow().isoformat() + 'Z'
+            # === ステップ2: イベント検索（最終版） ===
+            # 検索範囲を現在時刻の2時間前から30日後までに設定し、重複チェックの精度を上げます
+            time_min_dt = datetime.datetime.utcnow() - datetime.timedelta(hours=2)
+            time_max_dt = datetime.datetime.utcnow() + datetime.timedelta(days=30)
+            time_min_str = time_min_dt.isoformat() + 'Z'
+            time_max_str = time_max_dt.isoformat() + 'Z'
             try:
                 events_result = calendar.events().list(
                     calendarId=CALENDAR_ID,
-                    timeMin=now,
-                    maxResults=50, # 今後の予定を50件まで取得
+                    timeMin=time_min_str,
+                    timeMax=time_max_str,
+                    maxResults=250, # 検索範囲が広がったため、取得件数を増やす
                     singleEvents=True,
                     orderBy='startTime'
                 ).execute()
@@ -110,26 +114,12 @@ def main():
                 }
             }
             
-            # === ステップ3: イベントの更新処理 ===
+            # === ステップ3: イベントの更新処理（最終版） ===
+            # ユーザーの要望に基づき、重複を避けることを最優先します。
+            # 既存のイベントが見つかった場合は、内容を更新せずにスキップします。
             if existing_event:
-                # 既存のイベントが見つかった場合、タイトルか開始時間が変更されているかチェックします。
-                # カレンダーから取得した日時は文字列なので、比較のためにdatetimeオブジェクトに変換します。
-                existing_start_time_str = existing_event['start'].get('dateTime')
-                existing_start_time_dt = datetime.datetime.fromisoformat(existing_start_time_str.replace('Z', '+00:00'))
-
-                # タイトルまたは開始時刻が変更されているか確認します。
-                if existing_event['summary'] != title or existing_start_time_dt != start_time_dt:
-                    print(f"更新: 「{title}」の情報をカレンダーで更新します...")
-                    calendar.events().update(
-                        calendarId=CALENDAR_ID,
-                        eventId=existing_event['id'],
-                        body=event_body
-                    ).execute()
-                    updated_count += 1
-                else:
-                    print(f"スキップ: 「{title}」の情報は既に最新です。")
-                    skipped_count += 1
-
+                print(f"スキップ: 「{title}」は既にカレンダーに存在するため、処理をスキップします。")
+                skipped_count += 1
                 time.sleep(1) # APIへの負荷を考慮して1秒待機します。
             else:
                 # --- ステップ4: イベント新規作成 ---
