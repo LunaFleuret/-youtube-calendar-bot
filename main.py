@@ -34,7 +34,6 @@ def main():
     creds = Credentials.from_authorized_user_info(token_info, SCOPES)
     
     # もしトークンが期限切れなら、リフレッシュトークンを使って更新します
-    # (generate_token.pyで取得したリフレッシュトークンがここで活躍します)
     if creds.expired and creds.refresh_token:
         from google.auth.transport.requests import Request
         creds.refresh(Request())
@@ -62,13 +61,12 @@ def main():
         ).execute()
         existing_events = events_result.get('items', [])
         
- 
-registered_video_ids = set()
-for event in existing_events:
-    # イベントの拡張プロパティからYouTubeのVideo IDを取得します
-    properties = event.get('extendedProperties', {}).get('private', {})
-    if 'youtubeVideoId' in properties:
-        registered_video_ids.add(properties['youtubeVideoId'])
+        registered_video_ids = set()
+        for event in existing_events:
+            # イベントの拡張プロパティからYouTubeのVideo IDを取得します
+            properties = event.get('extendedProperties', {}).get('private', {})
+            if 'youtubeVideoId' in properties:
+                registered_video_ids.add(properties['youtubeVideoId'])
         
         print(f'カレンダーには現在 {len(registered_video_ids)} 件の将来の配信予定が登録されています。')
 
@@ -90,19 +88,18 @@ for event in existing_events:
             start_time_dt = datetime.datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
             end_time_dt = start_time_dt + datetime.timedelta(hours=2)
 
-            # main.py の97行目あたり
-　　　event_body = {
-    'summary': title,
-    'description': f'https://www.youtube.com/watch?v={video_id}',
-    'start': {'dateTime': start_time_dt.isoformat(), 'timeZone': 'UTC'},
-    'end': {'dateTime': end_time_dt.isoformat(), 'timeZone': 'UTC'},
-    # 拡張プロパティにYouTubeのVideo IDを保存します
-    'extendedProperties': {
-        'private': {
-            'youtubeVideoId': video_id
-        }
-    }
-}
+            event_body = {
+                'summary': title,
+                'description': f'https://www.youtube.com/watch?v={video_id}',
+                'start': {'dateTime': start_time_dt.isoformat(), 'timeZone': 'UTC'},
+                'end': {'dateTime': end_time_dt.isoformat(), 'timeZone': 'UTC'},
+                # 拡張プロパティにYouTubeのVideo IDを保存します
+                'extendedProperties': {
+                    'private': {
+                        'youtubeVideoId': video_id
+                    }
+                }
+            }
             
             print(f"新規登録: 「{title}」をカレンダーに追加します...")
             calendar.events().insert(calendarId=CALENDAR_ID, body=event_body).execute()
