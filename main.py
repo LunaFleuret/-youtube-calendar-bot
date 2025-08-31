@@ -20,6 +20,79 @@ YOUTUBE_CHANNEL_ID = 'UCUM6bFim1HuImRHmwkSl8lQ'
 CALENDAR_ID = 'a2539a4af3d922263853011ad3e0a7456b6fe092a2491eb6d4fa0e7eef0ae016@group.calendar.google.com'
 # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
+def get_existing_events(calendar_service, calendar_id):
+    """カレンダーの既存イベントを取得し、重複チェック用のデータを準備する"""
+    print('--- カレンダーの既存予定と重複チェックをしています... ---')
+    
+    # 過去30日から将来1年までのイベントを取得
+    now = datetime.datetime.utcnow()
+    time_min = (now - datetime.timedelta(days=30)).isoformat() + 'Z'
+    time_max = (now + datetime.timedelta(days=365)).isoformat() + 'Z'
+    
+    events_result = calendar_service.events().list(
+        calendarId=calendar_id, 
+        timeMin=time_min, 
+        timeMax=time_max,
+        maxResults=1000, 
+        singleEvents=True,
+        orderBy='startTime'
+    ).execute()
+    
+    existing_events = events_result.get('items', [])
+    
+    # 重複チェック用のデータ構造
+    registered_video_ids = set()
+    registered_titles = set()
+    registered_start_times = set()
+    
+    for event in existing_events:
+        # YouTubeのURLからvideo_idを抽出
+        description = event.get('description', '')
+        if 'youtube.com/watch?v=' in description:
+            video_id = description.split('v=')[-1].split('&')[0]  # パラメータを除去
+            registered_video_ids.add(video_id)
+        
+        # タイトルを正規化して保存
+        title = event.get('summary', '').strip()
+        if title:
+            # タイトルを正規化（空白を除去、小文字化）
+            normalized_title = ' '.join(title.lower().split())
+            registered_titles.add(normalized_title)
+        
+        # 開始時刻を保存（重複チェック用）
+        start_time = event.get('start', {}).get('dateTime')
+        if start_time:
+            # 時刻を分単位で丸める（秒以下の違いを無視）
+            start_dt = datetime.datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+            rounded_start = start_dt.replace(second=0, microsecond=0)
+            registered_start_times.add(rounded_start)
+    
+    print(f'カレンダーには現在 {len(existing_events)} 件のイベントが登録されています。')
+    print(f'重複チェック対象: Video ID {len(registered_video_ids)}件, タイトル {len(registered_titles)}件')
+    
+    return registered_video_ids, registered_titles, registered_start_times
+
+def is_duplicate_event(video_id, title, start_time, registered_video_ids, registered_titles, registered_start_times):
+    """イベントが重複しているかチェックする"""
+    
+    # 1. Video IDによる重複チェック
+    if video_id in registered_video_ids:
+        return True, "Video ID重複"
+    
+    # 2. タイトルによる重複チェック
+    normalized_title = ' '.join(title.lower().split())
+    if normalized_title in registered_titles:
+        return True, "タイトル重複"
+    
+    # 3. 開始時刻による重複チェック（5分以内の差を重複とみなす）
+    rounded_start = start_time.replace(second=0, microsecond=0)
+    for existing_start in registered_start_times:
+        time_diff = abs((rounded_start - existing_start).total_seconds())
+        if time_diff <= 300:  # 5分 = 300秒
+            return True, "開始時刻重複"
+    
+    return False, ""
+
 def main():
     """YouTubeの配信予定を取得し、Googleカレンダーに追加するメインの関数"""
     
@@ -53,44 +126,51 @@ def main():
         if not response['items']:
             print('現在、新しい配信予定はありませんでした。')
             return
-            
-        print('--- カレンダーの既存予定と重複チェックをしています... ---')
-        now = datetime.datetime.utcnow().isoformat() + 'Z' # 現在時刻をUTCで取得
-        events_result = calendar.events().list(
-            calendarId=CALENDAR_ID, timeMin=now, maxResults=250, singleEvents=True,
-            orderBy='startTime'
-        ).execute()
-        existing_events = events_result.get('items', [])
         
-        registered_video_ids = set()
-        for event in existing_events:
-            description = event.get('description', '')
-            if 'youtube.com/watch?v=' in description:
-                video_id = description.split('v=')[-1]
-                registered_video_ids.add(video_id)
-        
-        print(f'カレンダーには現在 {len(registered_video_ids)} 件の将来の配信予定が登録されています。')
+        # 既存イベントを取得して重複チェック用データを準備
+        registered_video_ids, registered_titles, registered_start_times = get_existing_events(calendar, CALENDAR_ID)
 
         added_count = 0
+        skipped_count = 0
+        
         for item in response['items']:
             video_id = item['id']['videoId']
             title = item['snippet']['title']
             
-            if video_id in registered_video_ids:
-                print(f"スキップ: 「{title}」は既に登録済みです。")
+            # 重複チェック
+            is_duplicate, reason = is_duplicate_event(
+                video_id, title, None, registered_video_ids, registered_titles, registered_start_times
+            )
+            
+            if is_duplicate:
+                print(f"スキップ: 「{title}」は既に登録済みです。理由: {reason}")
+                skipped_count += 1
                 continue
 
             video_details_request = youtube.videos().list(part="liveStreamingDetails", id=video_id)
             video_details_response = video_details_request.execute()
             
-            if not video_details_response['items']: continue
+            if not video_details_response['items']: 
+                print(f"スキップ: 「{title}」の配信詳細が取得できませんでした。")
+                continue
             
             start_time_str = video_details_response['items'][0]['liveStreamingDetails']['scheduledStartTime']
             start_time_dt = datetime.datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
             end_time_dt = start_time_dt + datetime.timedelta(hours=2)
+            
+            # 開始時刻での最終重複チェック
+            is_duplicate, reason = is_duplicate_event(
+                video_id, title, start_time_dt, registered_video_ids, registered_titles, registered_start_times
+            )
+            
+            if is_duplicate:
+                print(f"スキップ: 「{title}」は既に登録済みです。理由: {reason}")
+                skipped_count += 1
+                continue
 
             event_body = {
-                'summary': title, 'description': f'https://www.youtube.com/watch?v={video_id}',
+                'summary': title, 
+                'description': f'https://www.youtube.com/watch?v={video_id}',
                 'start': {'dateTime': start_time_dt.isoformat(), 'timeZone': 'UTC'},
                 'end': {'dateTime': end_time_dt.isoformat(), 'timeZone': 'UTC'},
             }
@@ -98,9 +178,16 @@ def main():
             print(f"新規登録: 「{title}」をカレンダーに追加します...")
             calendar.events().insert(calendarId=CALENDAR_ID, body=event_body).execute()
             added_count += 1
+            
+            # 新しく追加したイベントの情報を重複チェック用データに追加
+            registered_video_ids.add(video_id)
+            normalized_title = ' '.join(title.lower().split())
+            registered_titles.add(normalized_title)
+            registered_start_times.add(start_time_dt.replace(second=0, microsecond=0))
+            
             time.sleep(1)
 
-        print(f'--- {added_count}件の新しい予定を追加しました ---')
+        print(f'--- 処理完了: {added_count}件の新しい予定を追加, {skipped_count}件をスキップ ---')
 
     except HttpError as error:
         print(f'An error occurred: {error}')
