@@ -24,10 +24,10 @@ def get_existing_events(calendar_service, calendar_id):
     """カレンダーの既存イベントを取得し、重複チェック用のデータを準備する"""
     print('--- カレンダーの既存予定と重複チェックをしています... ---')
     
-    # 過去30日から将来1年までのイベントを取得
+    # 過去30日から将来3年までのイベントを取得（長期予定の重複を防ぐため）
     now = datetime.datetime.utcnow()
     time_min = (now - datetime.timedelta(days=30)).isoformat() + 'Z'
-    time_max = (now + datetime.timedelta(days=365)).isoformat() + 'Z'
+    time_max = (now + datetime.timedelta(days=1095)).isoformat() + 'Z'  # 3年 = 1095日
     
     events_result = calendar_service.events().list(
         calendarId=calendar_id, 
@@ -68,7 +68,22 @@ def get_existing_events(calendar_service, calendar_id):
             registered_start_times.add(rounded_start)
     
     print(f'カレンダーには現在 {len(existing_events)} 件のイベントが登録されています。')
-    print(f'重複チェック対象: Video ID {len(registered_video_ids)}件, タイトル {len(registered_titles)}件')
+    print(f'重複チェック対象: Video ID {len(registered_video_ids)}件, タイトル {len(registered_titles)}件, 開始時刻 {len(registered_start_times)}件')
+    
+    # デバッグ用：取得したイベントの詳細を表示
+    if existing_events:
+        print('--- 取得した既存イベントの詳細 ---')
+        for event in existing_events[:5]:  # 最初の5件のみ表示
+            title = event.get('summary', 'No title')
+            start_time = event.get('start', {}).get('dateTime', 'No time')
+            description = event.get('description', '')
+            video_id = ''
+            if 'youtube.com/watch?v=' in description:
+                video_id = description.split('v=')[-1].split('&')[0]
+            print(f'  タイトル: {title}')
+            print(f'  開始時刻: {start_time}')
+            print(f'  Video ID: {video_id}')
+            print('  ---')
     
     return registered_video_ids, registered_titles, registered_start_times
 
@@ -169,6 +184,7 @@ def main():
             
             # 重複チェック（既存イベントが見つからない場合のみ）
             if not existing_event:
+                print(f"重複チェック実行: 「{title}」 (Video ID: {video_id})")
                 is_duplicate, reason = is_duplicate_event(
                     video_id, title, start_time_dt, registered_video_ids, registered_titles, registered_start_times
                 )
@@ -177,6 +193,8 @@ def main():
                     print(f"スキップ: 「{title}」は既に登録済みです。理由: {reason}")
                     skipped_count += 1
                     continue
+                else:
+                    print(f"重複なし: 「{title}」は新規イベントとして追加されます")
 
             event_body = {
                 'summary': title,
