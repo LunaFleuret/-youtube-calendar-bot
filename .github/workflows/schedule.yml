@@ -2,7 +2,7 @@ name: Check YouTube Schedule
 
 on:
   schedule:
-    - cron: '15 * * * *' # 毎時15分に実行
+    - cron: '15 * * * *' 
   workflow_dispatch:
 
 jobs:
@@ -22,7 +22,7 @@ jobs:
         run: pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
 
       - name: Run script
-        # ここで、金庫（Secrets）の中身を環境変数としてプログラムに渡します
+        
         env:
           GCP_CLIENT_SECRET: ${{ secrets.GCP_CLIENT_SECRET }}
           GCP_TOKEN: ${{ secrets.GCP_TOKEN }}
